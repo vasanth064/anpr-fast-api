@@ -6,7 +6,7 @@ Below is a high-level overview of how our Automated Number Plate Recognition (AN
 
 ## 1. System Architecture
 
-![ANPR System Architecture](https://user-images.githubusercontent.com/.../diagram.png 'System Diagram')
+![ANPR System Architecture](https://raw.githubusercontent.com/vasanth064/anpr-fast-api/refs/heads/main/architecture.png 'System Diagram')
 
 1. **Client**
 
