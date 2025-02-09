@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ANPR Video Upload</title>
+    <!-- Bulma CSS Framework -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <style>
+        .result-image {
+            max-width: 400px;
+            margin: 10px;
+            display: inline-block;
+        }
+        #images, #metadata, #performance {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <section class="section">
+        <div class="container">
+            <h1 class="title">ANPR Video Upload</h1>
+            
+            <!-- Upload Form -->
+            <div class="box">
+                <form id="uploadForm">
+                    <div class="field">
+                        <label class="label" for="file">Choose Video File</label>
+                        <div class="control">
+                            <input class="input" type="file" id="file" name="file" accept="video/*" required>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="frame_interval">Frame Interval</label>
+                        <div class="control">
+                            <input class="input" type="number" id="frame_interval" name="frame_interval" value="30" required>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary" type="submit">Upload and Process</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Results Output -->
+            <div class="box">
+                <h2 class="subtitle">Results:</h2>
+                <pre id="result" class="has-background-light p-3"></pre>
+                <div id="images"></div>
+                <div id="metadata"></div>
+                <div id="performance"></div>
+            </div>
+        </div>
+    </section>
+    
+    <script>
+        const form = document.getElementById('uploadForm');
+        const resultPre = document.getElementById('result');
+        const imagesDiv = document.getElementById('images');
+        const metadataDiv = document.getElementById('metadata');
+        const performanceDiv = document.getElementById('performance');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('file');
+            const frameIntervalInput = document.getElementById('frame_interval');
+            
+            if (fileInput.files.length === 0) {
+                resultPre.textContent = "Please select a video file.";
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('frame_interval', frameIntervalInput.value);
+            
+            resultPre.textContent = "Processing...";
+            imagesDiv.innerHTML = "";
+            metadataDiv.innerHTML = "";
+            performanceDiv.innerHTML = "";
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                resultPre.textContent = JSON.stringify(data, null, 4);
+                
+                // Render annotated images below the JSON output
+                if (data.images && data.images.length > 0) {
+                    const header = document.createElement('h3');
+                    header.textContent = "Annotated Frames:";
+                    header.className = "title is-5";
+                    imagesDiv.appendChild(header);
+                    
+                    data.images.forEach((imgUrl) => {
+                        const img = document.createElement('img');
+                        img.src = imgUrl;
+                        img.alt = "Annotated Frame";
+                        img.className = "result-image";
+                        imagesDiv.appendChild(img);
+                    });
+                }
+                
+                // Render metadata for each image below the images
+                if (data.metadata && Object.keys(data.metadata).length > 0) {
+                    const metaHeader = document.createElement('h3');
+                    metaHeader.textContent = "Image Metadata:";
+                    metaHeader.className = "title is-5";
+                    metadataDiv.appendChild(metaHeader);
+                    
+                    for (const [imgUrl, meta] of Object.entries(data.metadata)) {
+                        const metaBox = document.createElement('div');
+                        metaBox.className = "box";
+                        metaBox.style.marginBottom = "10px";
+                        
+                        const metaTitle = document.createElement('h4');
+                        metaTitle.className = "subtitle is-6";
+                        metaTitle.textContent = `Metadata for ${imgUrl}:`;
+                        metaBox.appendChild(metaTitle);
+                        
+                        const metaPre = document.createElement('pre');
+                        metaPre.className = "has-background-light p-3";
+                        metaPre.textContent = JSON.stringify(meta, null, 4);
+                        metaBox.appendChild(metaPre);
+                        
+                        metadataDiv.appendChild(metaBox);
+                    }
+                }
+                
+                // Render performance metrics for each image below the metadata
+                if (data.metrics && Object.keys(data.metrics).length > 0) {
+                    const perfHeader = document.createElement('h3');
+                    perfHeader.textContent = "Performance Metrics:";
+                    perfHeader.className = "title is-5";
+                    performanceDiv.appendChild(perfHeader);
+                    
+                    for (const [imgUrl, perf] of Object.entries(data.metrics)) {
+                        const perfBox = document.createElement('div');
+                        perfBox.className = "box";
+                        perfBox.style.marginBottom = "10px";
+                        
+                        const perfTitle = document.createElement('h4');
+                        perfTitle.className = "subtitle is-6";
+                        perfTitle.textContent = `Metrics for ${imgUrl}:`;
+                        perfBox.appendChild(perfTitle);
+                        
+                        const perfPre = document.createElement('pre');
+                        perfPre.className = "has-background-light p-3";
+                        perfPre.textContent = JSON.stringify(perf, null, 4);
+                        perfBox.appendChild(perfPre);
+                        
+                        performanceDiv.appendChild(perfBox);
+                    }
+                }
+            } catch (error) {
+                resultPre.textContent = "Error: " + error;
+            }
+        });
+    </script>
+</body>
+</html>
