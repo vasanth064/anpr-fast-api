@@ -6,7 +6,7 @@ Below is a high-level overview of how our Automated Number Plate Recognition (AN
 
 ## 1. System Architecture
 
-![ANPR System Architecture](https://user-images.githubusercontent.com/.../diagram.png 'System Diagram')
+![ANPR System Architecture](https://raw.githubusercontent.com/vasanth064/anpr-fast-api/refs/heads/main/architecture.png 'System Diagram')
 
 1. **Client**
 
@@ -132,4 +132,8 @@ Below is a sample cURL command to upload a video to the `/upload` endpoint, spec
 curl -X POST "http://127.0.0.1:8000/upload" \
   -F "file=@/path/to/your/video.mp4" \
   -F "frame_interval=30"
+```
+
+```bash
+uvicorn main:app --reload
 ```
