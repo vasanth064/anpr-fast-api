@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ANPR System - Camera Feed</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        #cameraFeed {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+
+        .is-max-width-100 {
+            max-width: 100% !important;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin: 0 auto;
+            max-width: 100%;
+        }
+
+        @media screen and (max-width: 768px) {
+            .field.is-grouped {
+                justify-content: center;
+            }
+            
+            .control {
+                margin: 0.5rem !important;
+            }
+            
+            .button {
+                width: 100%;
+            }
+            
+            .select {
+                width: 100%;
+            }
+            
+            .select select {
+                width: 100%;
+            }
+        }
+
+        .box {
+            margin-bottom: 1.5rem;
+        }
+
+        .title {
+            margin-bottom: 2rem;
+        }
+
+        .table th, .table td {
+            vertical-align: middle;
+        }
+
+        .plate-thumbnail {
+            max-width: 200px;
+            max-height: 120px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: transform 0.2s;
+        }
+
+        .plate-thumbnail:hover {
+            transform: scale(1.05);
+        }
+
+        .modal-image {
+            max-width: 90vw;
+            max-height: 80vh;
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1);
+        }
+
+        .results-table th,
+        .results-table td {
+            border: 1px solid #dbdbdb;
+            padding: 0.75em;
+            text-align: left;
+        }
+
+        .results-table th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+        }
+
+        @keyframes highlightNew {
+            from {
+                background-color: #fffbd1;
+            }
+
+            to {
+                background-color: transparent;
+            }
+        }
+
+        /* Animation styles */
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .results-table tr.new-entry {
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .results-table td img {
+            transition: transform 0.3s ease;
+        }
+
+        .results-table td img:hover {
+            transform: scale(1.1);
+        }
+
+        /* Highlight new entries */
+        .results-table tr.new-entry {
+            background-color: rgba(72, 95, 199, 0.1);
+        }
+
+        /* Fade out highlight */
+        .results-table tr {
+            transition: background-color 1s ease;
+        }
+
+        /* Style for the plate number */
+        .plate-number {
+            font-weight: bold;
+            color: #485fc7;
+        }
+
+        /* Confidence score styling */
+        .confidence-score {
+            padding: 0.25em 0.5em;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .confidence-high {
+            background-color: #48c78e;
+            color: white;
+        }
+
+        .confidence-medium {
+            background-color: #ffe08a;
+            color: #946c00;
+        }
+
+        .confidence-low {
+            background-color: #f14668;
+            color: white;
+        }
+
+        /* Timestamp styling */
+        .timestamp {
+            font-family: monospace;
+            color: #666;
+        }
+
+        /* Frame preview styling */
+        .frame-preview {
+            max-width: 120px;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .frame-preview:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    {% include 'includes/navbar.html' %}
+
+    <section class="section">
+        <div class="container has-text-centered">
+            <h1 class="title">Live Camera ANPR</h1>
+
+            <!-- Controls Box -->
+            <div class="box">
+                <!-- First Row: Camera Select and Frame Interval -->
+                <div class="field is-grouped is-grouped-multiline is-justify-content-center is-flex-wrap-wrap mb-4">
+                    <div class="control m-2">
+                        <label class="label">Camera</label>
+                        <div class="select">
+                            <select id="cameraSelect" onchange="updateCameraSource()">
+                                <option value="">Loading cameras...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="control m-2">
+                        <label class="label">Frame Interval</label>
+                        <div class="field has-addons">
+                            <div class="control">
+                                <input class="input" type="number" id="frameInterval" value="30" min="1">
+                            </div>
+                            <div class="control">
+                                <a class="button is-static">frames</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Second Row: Buttons -->
+                <div class="field is-grouped is-grouped-multiline is-justify-content-center is-flex-wrap-wrap">
+                    <div class="control m-2">
+                        <button class="button is-primary" onclick="startCamera()">
+                            <span class="icon">
+                                <i class="fas fa-play"></i>
+                            </span>
+                            <span>Start Camera</span>
+                        </button>
+                    </div>
+                    <div class="control m-2">
+                        <button class="button is-danger" onclick="stopCamera()">
+                            <span class="icon">
+                                <i class="fas fa-stop"></i>
+                            </span>
+                            <span>Stop Camera</span>
+                        </button>
+                    </div>
+                    <div class="control m-2">
+                        <button class="button is-info" onclick="refreshCameras()">
+                            <span class="icon">
+                                <i class="fas fa-sync"></i>
+                            </span>
+                            <span>Refresh Cameras</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Camera Feed -->
+            <div class="box">
+                <div class="video-container is-flex is-justify-content-center">
+                    <video id="cameraFeed" autoplay muted class="is-max-width-100">
+                        Your browser does not support the video element.
+                    </video>
+                </div>
+            </div>
+
+            <!-- Results Box -->
+            <div class="box">
+                <h2 class="subtitle">Detected Plates:</h2>
+                <div class="table-container">
+                    <table class="table is-fullwidth is-striped is-hoverable results-table">
+                        <thead>
+                            <tr>
+                                <th class="has-text-centered">Timestamp</th>
+                                <th class="has-text-centered">Plate Number</th>
+                                <th class="has-text-centered">Confidence</th>
+                                <th class="has-text-centered">Detected Frame</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Image Preview Modal -->
+    <div class="modal" id="imageModal">
+        <div class="modal-background"></div>
+        <div class="modal-content">
+            <p class="image">
+                <img src="" id="modalImage" class="modal-image">
+            </p>
+        </div>
+        <button class="modal-close is-large" aria-label="close"></button>
+    </div>
+
+    <script>
+        let ws = null;
+        let detectedPlates = new Set();
+        let currentStream = null;
+        let isProcessing = false;
+        let frameCapture = null;
+
+        class FrameCapture {
+            constructor(videoElement, websocket, frameInterval) {
+                this.videoElement = videoElement;
+                this.websocket = websocket;
+                this.frameInterval = frameInterval;
+                this.isRunning = false;
+                this.canvas = document.createElement('canvas');
+                this.context = this.canvas.getContext('2d');
+                this.frameCount = 0;
+            }
+
+            start() {
+                this.isRunning = true;
+                this.captureFrames();
+            }
+
+            stop() {
+                this.isRunning = false;
+            }
+
+            async captureFrames() {
+                console.log(`Starting frame capture with interval: ${this.frameInterval}`);
+                
+                while (this.isRunning && 
+                       this.videoElement.srcObject && 
+                       this.websocket.readyState === WebSocket.OPEN) {
+                    try {
+                        // Check if video is ready
+                        if (this.videoElement.readyState !== this.videoElement.HAVE_ENOUGH_DATA) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            continue;
+                        }
+
+                        this.frameCount++;
+                        
+                        // Only process frames according to interval
+                        if (this.frameCount % this.frameInterval === 0) {
+                            // Update canvas dimensions
+                            if (this.canvas.width !== this.videoElement.videoWidth) {
+                                this.canvas.width = this.videoElement.videoWidth;
+                                this.canvas.height = this.videoElement.videoHeight;
+                                console.log(`Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+                            }
+
+                            // Capture frame
+                            this.context.drawImage(this.videoElement, 0, 0);
+                            
+                            // Get frame as base64
+                            const frameData = this.canvas.toDataURL('image/jpeg', 0.9);
+                            
+                            // Send frame
+                            if (this.websocket.readyState === WebSocket.OPEN) {
+                                console.log(`Sending frame #${this.frameCount}`);
+                                await this.websocket.send(JSON.stringify({
+                                    frame: frameData,
+                                    frame_number: this.frameCount,
+                                    frame_interval: this.frameInterval
+                                }));
+                            }
+                        }
+
+                        // Wait before next frame (adjust based on desired FPS)
+                        await new Promise(resolve => setTimeout(resolve, 33)); // ~30 FPS
+                    } catch (error) {
+                        console.error('Frame capture error:', error);
+                    }
+                }
+                console.log('Frame capture stopped');
+            }
+        }
+
+        async function startCamera() {
+            const select = document.getElementById('cameraSelect');
+            const deviceId = select.value;
+            const frameInterval = parseInt(document.getElementById('frameInterval').value) || 30;
+
+            if (!deviceId) {
+                alert('Please select a camera');
+                return;
+            }
+
+            try {
+                // Stop existing camera
+                await stopCamera();
+
+                console.log('Starting camera with deviceId:', deviceId);
+                console.log('Frame interval:', frameInterval);
+
+                // Request camera with specific constraints
+                const constraints = {
+                    video: {
+                        deviceId: { exact: deviceId },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+
+                // Set up video element
+                const videoElement = document.getElementById('cameraFeed');
+                videoElement.srcObject = stream;
+                
+                console.log('Camera stream started');
+
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => {
+                        videoElement.play().then(resolve);
+                    };
+                });
+
+                console.log('Video element ready');
+
+                // Clear previous results
+                document.getElementById('resultsBody').innerHTML = '';
+                detectedPlates.clear();
+
+                // Set up WebSocket
+                ws = new WebSocket(`ws://${window.location.host}/ws/camera-feed`);
+
+                ws.onopen = () => {
+                    console.log('WebSocket connected, starting frame capture');
+                    frameCapture = new FrameCapture(videoElement, ws, frameInterval);
+                    frameCapture.start();
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Received response:', data);
+                        
+                        if (data.error) {
+                            console.error('Server error:', data.error);
+                            return;
+                        }
+
+                        // Update results table if plates were detected
+                        if (data.plates && data.plates.length > 0) {
+                            console.log('Detected plates:', data.plates);
+                            const tbody = document.getElementById('resultsBody');
+                            data.plates.forEach(plate => {
+                                if (!detectedPlates.has(plate.text)) {
+                                    detectedPlates.add(plate.text);
+                                    
+                                    addNewResult(plate, data.frame);
+                                }
+                            });
+                        }
+
+                    } catch (error) {
+                        console.error('Error handling WebSocket message:', error);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    stopCamera();
+                };
+
+                ws.onclose = () => {
+                    console.log('WebSocket closed');
+                    if (frameCapture) {
+                        frameCapture.stop();
+                        frameCapture = null;
+                    }
+                };
+
+            } catch (error) {
+                console.error('Camera start error:', error);
+                alert(`Failed to start camera: ${error.message}`);
+                await stopCamera();
+            }
+        }
+
+        async function stopCamera() {
+            // Stop frame capture
+            if (frameCapture) {
+                frameCapture.stop();
+                frameCapture = null;
+            }
+
+            // Stop media stream
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => {
+                    track.stop();
+                    console.log(`Stopped track: ${track.label}`);
+                });
+                currentStream = null;
+            }
+
+            // Clear video element
+            const videoElement = document.getElementById('cameraFeed');
+            videoElement.srcObject = null;
+
+            // Close WebSocket
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+
+            // Wait for cleanup
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        async function updateCameraSource() {
+            // Stop previous camera
+            await stopCamera();
+
+            // Start camera again after updating the source
+            await startCamera();
+        }
+
+        function updateResultsTable(data) {
+            const tbody = document.getElementById('resultsBody');
+            data.plates.forEach(plate => {
+                if (!detectedPlates.has(plate.text)) {
+                    detectedPlates.add(plate.text);
+                    
+                    const row = tbody.insertRow(0);
+                    row.insertCell(0).textContent = plate.timestamp;
+                    row.insertCell(1).textContent = plate.text;
+                    row.insertCell(2).textContent = 
+                        (plate.confidence * 100).toFixed(2) + '%';
+                    
+                    const imgCell = row.insertCell(3);
+                    const img = document.createElement('img');
+                    img.src = 'data:image/jpeg;base64,' + data.frame;
+                    img.className = 'plate-thumbnail';
+                    img.onclick = () => showImageModal(img.src);
+                    imgCell.appendChild(img);
+                    
+                    row.style.animation = 'highlightNew 2s';
+                }
+            });
+        }
+
+        // Initialize camera selection
+        async function initializeCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                const select = document.getElementById('cameraSelect');
+
+                select.innerHTML = '';
+
+                if (videoDevices.length === 0) {
+                    select.innerHTML = '<option value="">No cameras found</option>';
+                    return;
+                }
+
+                videoDevices.forEach((device) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Camera ${device.deviceId.slice(0, 4)}`;
+                    select.appendChild(option);
+                    console.log(`Added camera: ${option.text} (${device.deviceId})`);
+                });
+
+                // Add change event listener
+                select.addEventListener('change', updateCameraSource);
+
+            } catch (error) {
+                console.error('Camera initialization error:', error);
+                document.getElementById('cameraSelect').innerHTML =
+                    '<option value="">Error loading cameras</option>';
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', initializeCameras);
+
+        function showImageModal(src) {
+            document.getElementById('modalImage').src = src;
+            document.getElementById('imageModal').classList.add('is-active');
+        }
+
+        // Modal close handlers
+        document.querySelector('.modal-background').onclick = () => {
+            document.getElementById('imageModal').classList.remove('is-active');
+        };
+        document.querySelector('.modal-close').onclick = () => {
+            document.getElementById('imageModal').classList.remove('is-active');
+        };
+
+        // Function to get confidence class
+        function getConfidenceClass(confidence) {
+            if (confidence >= 0.7) return 'confidence-high';
+            if (confidence >= 0.4) return 'confidence-medium';
+            return 'confidence-low';
+        }
+
+        // Function to add new result with animation
+        function addNewResult(plate, frame) {
+            const tbody = document.getElementById('resultsBody');
+            const row = document.createElement('tr');
+            row.className = 'new-entry';
+
+            // Format confidence as percentage
+            const confidencePercent = (plate.confidence * 100).toFixed(1);
+            const confidenceClass = getConfidenceClass(plate.confidence);
+
+            row.innerHTML = `
+                <td class="has-text-centered">
+                    <span class="timestamp">${plate.timestamp}</span>
+                </td>
+                <td class="has-text-centered">
+                    <span class="plate-number">${plate.text}</span>
+                </td>
+                <td class="has-text-centered">
+                    <span class="confidence-score ${confidenceClass}">
+                        ${confidencePercent}%
+                    </span>
+                </td>
+                <td class="has-text-centered">
+                    <img src="data:image/jpeg;base64,${frame}" 
+                         alt="Detected Frame" 
+                         class="frame-preview"
+                         onclick="showLargeImage(this.src)">
+                </td>
+            `;
+
+            // Insert at the beginning of the table
+            tbody.insertBefore(row, tbody.firstChild);
+
+            // Remove animation class after animation completes
+            setTimeout(() => {
+                row.classList.remove('new-entry');
+            }, 1000);
+
+            // Keep only the last 10 entries
+            while (tbody.children.length > 10) {
+                tbody.removeChild(tbody.lastChild);
+            }
+        }
+
+        // Function to show large image in modal
+        function showLargeImage(src) {
+            const modal = document.createElement('div');
+            modal.className = 'modal is-active';
+            modal.innerHTML = `
+                <div class="modal-background" onclick="this.parentElement.remove()"></div>
+                <div class="modal-content">
+                    <p class="image">
+                        <img src="${src}" alt="Large Preview">
+                    </p>
+                </div>
+                <button class="modal-close is-large" aria-label="close" onclick="this.parentElement.remove()"></button>
+            `;
+            document.body.appendChild(modal);
+        }
+    </script>
+</body>
+</html>

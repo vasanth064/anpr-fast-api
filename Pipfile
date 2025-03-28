@@ -6,13 +6,13 @@ name = "pypi"
 [packages]
 numpy = "==1.24.2"
 fastapi = "*"
-uvicorn = "*"
 fastanpr = "*"
 opencv-python = "*"
 jinja2 = "*"
-openai = "*"
 python-dotenv = "*"
 python-multipart = "*"
+uvicorn = {extras = ["standard"], version = "*"}
+openai = "==0.28"
 
 [dev-packages]
 

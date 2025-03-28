@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ANPR System - Live Video</title>
+    <!-- Bulma CSS Framework -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        .video-container {
+            margin: 20px 0;
+            text-align: center;
+            height: 480px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f5f5f5;
+            border-radius: 6px;
+            position: relative;
+        }
+        #videoPlayer {
+            max-width: 100%;
+            max-height: 480px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            border-radius: 6px;
+        }
+        .plate-thumbnail {
+            max-width: 200px;
+            max-height: 120px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: transform 0.2s;
+        }
+        .plate-thumbnail:hover {
+            transform: scale(1.05);
+        }
+        /* Modal styles for image preview */
+        .modal-image {
+            max-width: 90vw;
+            max-height: 80vh;
+        }
+        @media screen and (max-width: 768px) {
+            .video-container {
+                height: 360px;
+            }
+            #videoPlayer {
+                max-height: 360px;
+            }
+        }
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1);
+        }
+        .results-table th, .results-table td {
+            border: 1px solid #dbdbdb;
+            padding: 0.75em;
+            text-align: left;
+        }
+        .results-table th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+        }
+        #progressBar {
+            width: 100%;
+            height: 20px;
+            background-color: #f5f5f5;
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        #progressFill {
+            height: 100%;
+            background-color: #00d1b2;
+            width: 0%;
+            transition: width 0.3s ease-in-out;
+        }
+        @keyframes highlightNew {
+            from { background-color: #fffbd1; }
+            to { background-color: transparent; }
+        }
+    </style>
+</head>
+<body>
+    {% include 'includes/navbar.html' %}
+
+    <section class="section">
+        <div class="container">
+            <h1 class="title">Live Video Processing</h1>
+            
+            <!-- Controls Box -->
+            <div class="box">
+                <div class="field">
+                    <label class="label" for="videoFile">Choose Video File</label>
+                    <div class="control">
+                        <input class="input" type="file" id="videoFile" accept="video/*" required>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label" for="frameInterval">Frame Interval</label>
+                    <div class="control">
+                        <input class="input" type="number" id="frameInterval" value="30" min="1">
+                    </div>
+                </div>
+                <div class="field">
+                    <div class="control">
+                        <button class="button is-primary" onclick="processVideo()">Process Video</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Player -->
+            <div class="box">
+                <div class="video-container">
+                    <video id="videoPlayer" controls muted loop autoplay>
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+            </div>
+
+            <!-- Results Table -->
+            <div class="box">
+                <h2 class="subtitle">Detected Plates:</h2>
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Plate Number</th>
+                            <th>Confidence</th>
+                            <th>Detected Frame</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Image Preview Modal -->
+    <div class="modal" id="imageModal">
+        <div class="modal-background"></div>
+        <div class="modal-content">
+            <p class="image">
+                <img src="" id="modalImage" class="modal-image">
+            </p>
+        </div>
+        <button class="modal-close is-large" aria-label="close"></button>
+    </div>
+
+    <script>
+        let ws = null;
+        let detectedPlates = new Set();
+        const videoPlayer = document.getElementById('videoPlayer');
+        const modal = document.getElementById('imageModal');
+        const modalImage = document.getElementById('modalImage');
+
+        function processVideo() {
+            const fileInput = document.getElementById('videoFile');
+            const frameInterval = parseInt(document.getElementById('frameInterval').value);
+            
+            if (!fileInput.files || !fileInput.files[0]) {
+                alert('Please select a video file first');
+                return;
+            }
+
+            // Clear previous results
+            document.getElementById('resultsBody').innerHTML = '';
+            detectedPlates.clear();
+
+            // Set up video player
+            const videoFile = fileInput.files[0];
+            if (videoPlayer.src) {
+                URL.revokeObjectURL(videoPlayer.src);
+            }
+            videoPlayer.src = URL.createObjectURL(videoFile);
+            
+            // Configure video playback
+            videoPlayer.muted = true;
+            videoPlayer.loop = true;
+            videoPlayer.play().catch(console.error);
+
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+
+            // Show loading state
+            const loadingRow = document.getElementById('resultsBody').insertRow(0);
+            const loadingCell = loadingRow.insertCell(0);
+            loadingCell.colSpan = 4;
+            loadingCell.textContent = 'Processing video...';
+            loadingCell.style.textAlign = 'center';
+
+            ws = new WebSocket(`ws://${window.location.host}/ws/video`);
+            
+            ws.onopen = async function() {
+                console.log('WebSocket connected');
+                
+                // First send frame interval
+                await ws.send(JSON.stringify({ frameInterval: frameInterval }));
+                
+                // Then send video file in chunks
+                const chunkSize = 1024 * 1024; // 1MB chunks
+                let offset = 0;
+                
+                while (offset < videoFile.size) {
+                    const chunk = videoFile.slice(offset, offset + chunkSize);
+                    const buffer = await chunk.arrayBuffer();
+                    ws.send(buffer);
+                    offset += chunkSize;
+                    console.log(`Uploaded ${Math.round((offset / videoFile.size) * 100)}%`);
+                }
+                
+                // Send empty buffer to signal end of file
+                ws.send(new ArrayBuffer(0));
+                console.log('Video upload completed');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    videoPlayer.pause();
+                    // Remove loading message
+                    document.getElementById('resultsBody').innerHTML = '';
+                    return;
+                }
+                
+                // Remove loading message if present
+                if (document.getElementById('resultsBody').rows.length === 1 && 
+                    document.getElementById('resultsBody').rows[0].cells[0].textContent === 'Processing video...') {
+                    document.getElementById('resultsBody').innerHTML = '';
+                }
+                
+                if (data.status === 'completed') {
+                    console.log('Processing completed');
+                    // Stop the video and reset to beginning
+                    videoPlayer.pause();
+                    videoPlayer.currentTime = 0;
+                    videoPlayer.loop = false;  // Disable looping
+                    
+                    // Add completion message
+                    const row = document.getElementById('resultsBody').insertRow(0);
+                    const cell = row.insertCell(0);
+                    cell.colSpan = 4;
+                    cell.style.textAlign = 'center';
+                    cell.style.backgroundColor = '#e6ffe6';
+                    cell.textContent = `Processing completed. Total unique plates detected: ${detectedPlates.size}`;
+                    return;
+                }
+                
+                // Update results table with only new plates
+                if (data.plates && data.plates.length > 0) {
+                    const tbody = document.getElementById('resultsBody');
+                    data.plates.forEach(plate => {
+                        if (!detectedPlates.has(plate.text)) {
+                            detectedPlates.add(plate.text);
+                            
+                            const row = tbody.insertRow(0);
+                            row.insertCell(0).textContent = plate.timestamp;
+                            row.insertCell(1).textContent = plate.text;
+                            row.insertCell(2).textContent = 
+                                (plate.confidence * 100).toFixed(2) + '%';
+                            
+                            // Add frame image
+                            const imgCell = row.insertCell(3);
+                            const img = document.createElement('img');
+                            img.src = 'data:image/jpeg;base64,' + data.frame;
+                            img.className = 'plate-thumbnail';
+                            img.onclick = () => showImageModal(img.src);
+                            imgCell.appendChild(img);
+                            
+                            row.style.animation = 'highlightNew 2s';
+                        }
+                    });
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                alert('Connection error');
+                videoPlayer.pause();  // Stop video on error
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket connection closed');
+            };
+        }
+
+        // Modal functions
+        function showImageModal(src) {
+            modalImage.src = src;
+            modal.classList.add('is-active');
+        }
+
+        // Close modal when clicking background or close button
+        document.querySelector('.modal-background').onclick = () => {
+            modal.classList.remove('is-active');
+        };
+        document.querySelector('.modal-close').onclick = () => {
+            modal.classList.remove('is-active');
+        };
+
+        // Add event listeners for video player
+        document.addEventListener('DOMContentLoaded', () => {
+            const videoPlayer = document.getElementById('videoPlayer');
+            
+            // Ensure video stays muted
+            videoPlayer.addEventListener('volumechange', () => {
+                if (!videoPlayer.muted) {
+                    videoPlayer.muted = true;
+                }
+            });
+
+            // Handle video errors
+            videoPlayer.addEventListener('error', (e) => {
+                console.error('Video error:', e);
+                alert('Error playing video. Please try again.');
+            });
+
+            // Restart video if it ends and loop doesn't work
+            videoPlayer.addEventListener('ended', () => {
+                videoPlayer.currentTime = 0;
+                videoPlayer.play().catch(console.error);
+            });
+        });
+
+        // Clean up when changing files
+        document.getElementById('videoFile').onchange = () => {
+            if (videoPlayer.src) {
+                URL.revokeObjectURL(videoPlayer.src);
+            }
+        };
+    </script>
+</body>
+</html> 

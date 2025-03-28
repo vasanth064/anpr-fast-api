@@ -1,0 +1,93 @@
+<nav class="navbar is-light" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+        <a class="navbar-item" href="/">
+            <strong>ANPR System</strong>
+        </a>
+
+        <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarBasic">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+        </a>
+    </div>
+
+    <div id="navbarBasic" class="navbar-menu">
+        <div class="navbar-start">
+            <a href="/" class="navbar-item">
+                <span class="icon">
+                    <i class="fas fa-home"></i>
+                </span>
+                <span>Home</span>
+            </a>
+            <a href="/live" class="navbar-item">
+                <span class="icon">
+                    <i class="fas fa-video"></i>
+                </span>
+                <span>Live Video</span>
+            </a>
+            <a href="/camera" class="navbar-item">
+                <span class="icon">
+                    <i class="fas fa-camera"></i>
+                </span>
+                <span>Camera Feed</span>
+            </a>
+        </div>
+    </div>
+</nav>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Get all "navbar-burger" elements
+    const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
+
+    // Add a click event on each of them
+    $navbarBurgers.forEach(el => {
+        el.addEventListener('click', () => {
+            // Get the target from the "data-target" attribute
+            const target = el.dataset.target;
+            const $target = document.getElementById(target);
+
+            // Toggle the "is-active" class on both the "navbar-burger" and the "navbar-menu"
+            el.classList.toggle('is-active');
+            $target.classList.toggle('is-active');
+        });
+    });
+});
+
+// Add active state to current page
+document.addEventListener('DOMContentLoaded', () => {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.navbar-item');
+    
+    navLinks.forEach(link => {
+        if (link.getAttribute('href') === currentPath) {
+            link.classList.add('is-active');
+        }
+    });
+});
+</script>
+
+<style>
+.navbar {
+    margin-bottom: 1.5rem;
+}
+
+.navbar-item.is-active {
+    background-color: #f5f5f5;
+    color: #485fc7;
+}
+
+.navbar-item .icon {
+    margin-right: 0.5rem;
+}
+
+@media screen and (max-width: 1023px) {
+    .navbar-menu {
+        padding: 0.5rem 0;
+    }
+    
+    .navbar-item {
+        padding: 0.75rem 1.5rem;
+    }
+}
+</style> 

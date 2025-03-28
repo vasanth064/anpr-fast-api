@@ -7,12 +7,15 @@ import shutil
 import time
 import openai
 import base64
-from fastapi import FastAPI, File, UploadFile, Form, Request
+import numpy as np
+from fastapi import FastAPI, File, UploadFile, Form, Request, WebSocket as WebSocketEndpoint
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from typing import Tuple, List, Set
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
+from fastapi.websockets import WebSocketDisconnect
+import traceback
 
 load_dotenv()
 
@@ -288,6 +291,228 @@ async def upload_video(file: UploadFile = File(...), frame_interval: int = Form(
         "metrics": metrics_dict     # Performance metrics per frame
     }
     return results_json
+
+
+@app.get("/live", response_class=HTMLResponse)
+async def get_live_page(request: Request):
+    """Page for live camera feed processing"""
+    return templates.TemplateResponse("live.html", {"request": request})
+
+
+@app.get("/camera", response_class=HTMLResponse)
+async def get_camera_page(request: Request):
+    """Page for live camera feed processing"""
+    return templates.TemplateResponse("camera.html", {"request": request})
+
+
+@app.websocket("/ws/camera-feed")
+async def websocket_camera_feed(websocket: WebSocketEndpoint):
+    """WebSocket endpoint for live camera feed processing"""
+    print("New camera feed connection established")
+    await websocket.accept()
+    
+    try:
+        from fastanpr import FastANPR
+        fast_anpr = FastANPR()
+        frame_count = 0
+        
+        while True:
+            try:
+                # Receive frame data as base64 string
+                data = await websocket.receive_json()
+                frame_count += 1
+                
+                # Extract base64 image data
+                frame_base64 = data.get('frame', '').split('base64,')[-1]
+                if not frame_base64:
+                    continue
+
+                # Decode base64 to image
+                img_bytes = base64.b64decode(frame_base64)
+                nparr = np.frombuffer(img_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                if frame is None or frame.size == 0:
+                    print("Invalid frame decoded")
+                    continue
+                    
+                # Process frame
+                start_time = time.time()
+                
+                # Convert BGR to RGB for FastANPR
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = await fast_anpr.run([rgb_frame])
+                plates = results[0]
+                
+                detected_plates = []
+                for plate in plates:
+                    if not plate or not plate.rec_text:
+                        continue
+                        
+                    plate_text = plate.rec_text.strip().upper()
+                    
+                    # Validate plate format + state code
+                    if INDIAN_PLATE_PATTERN.match(plate_text) and plate_text[:2] in VALID_STATE_CODES:
+                        # Draw detection on frame
+                        bbox = plate.det_box
+                        if bbox and len(bbox) >= 4:
+                            x1, y1, x2, y2 = map(int, bbox[:4])
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.putText(frame, plate_text, (x1, y1-10), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                        
+                        detected_plates.append({
+                            "text": plate_text,
+                            "confidence": float(getattr(plate, "rec_conf", 0)),
+                            "timestamp": time.strftime("%H:%M:%S")
+                        })
+                
+                # Always convert and send the processed frame
+                _, buffer = cv2.imencode('.jpg', frame)
+                response_frame_base64 = base64.b64encode(buffer).decode('utf-8')
+                
+                # Send response with processed frame and any detected plates
+                response_data = {
+                    "plates": detected_plates,
+                    "frame": response_frame_base64,
+                    "latency": time.time() - start_time,
+                    "frame_count": frame_count
+                }
+                
+                await websocket.send_json(response_data)
+                
+            except WebSocketDisconnect:
+                print("WebSocket disconnected")
+                break
+            except Exception as e:
+                print(f"Frame handling error: {str(e)}")
+                traceback.print_exc()
+                continue
+                
+    except Exception as e:
+        print(f"WebSocket error: {str(e)}")
+        traceback.print_exc()
+    finally:
+        print("WebSocket connection closed")
+
+
+@app.websocket("/ws/video")
+async def websocket_video_endpoint(websocket: WebSocketEndpoint):
+    """WebSocket endpoint for live video processing"""
+    await websocket.accept()
+    temp_video = "temp_video.mp4"
+    cap = None
+    
+    try:
+        # First receive the frame interval
+        frame_interval_data = await websocket.receive_json()
+        frame_interval = int(frame_interval_data.get('frameInterval', 30))
+        
+        # Create a buffer to store video data
+        video_buffer = bytearray()
+        
+        # Receive video data in chunks
+        while True:
+            chunk = await websocket.receive_bytes()
+            if not chunk:  # Empty chunk signals end of file
+                break
+            video_buffer.extend(chunk)
+        
+        # Save the complete video file
+        with open(temp_video, 'wb') as f:
+            f.write(video_buffer)
+        
+        # Verify video file
+        if not os.path.exists(temp_video) or os.path.getsize(temp_video) == 0:
+            await websocket.send_json({"error": "Invalid video file received"})
+            return
+        
+        # Initialize video capture
+        cap = cv2.VideoCapture(temp_video)
+        if not cap.isOpened():
+            await websocket.send_json({"error": "Failed to open video file"})
+            return
+        
+        # Initialize ANPR
+        from fastanpr import FastANPR
+        fast_anpr = FastANPR()
+        
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_count = 0
+        
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            if frame_count % frame_interval == 0:
+                try:
+                    # Process frame
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    results = await fast_anpr.run([rgb_frame])
+                    plates = results[0]
+                    
+                    detected_plates = []
+                    for plate in plates:
+                        if plate.rec_text:
+                            plate_text = plate.rec_text.strip().upper()
+                            if INDIAN_PLATE_PATTERN.match(plate_text) and plate_text[:2] in VALID_STATE_CODES:
+                                # Draw detection on frame
+                                bbox = plate.det_box
+                                if bbox and len(bbox) >= 4:
+                                    x1, y1, x2, y2 = map(int, bbox[:4])
+                                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                    cv2.putText(frame, plate_text, (x1, y1-10), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                                
+                                detected_plates.append({
+                                    "text": plate_text,
+                                    "confidence": float(getattr(plate, "rec_conf", 0)),
+                                    "timestamp": time.strftime("%H:%M:%S")
+                                })
+                    
+                    if detected_plates:
+                        # Convert frame to base64 only if plates were detected
+                        _, buffer = cv2.imencode('.jpg', frame)
+                        frame_base64 = base64.b64encode(buffer).decode('utf-8')
+                        
+                        # Send results
+                        await websocket.send_json({
+                            "frame": frame_base64,
+                            "plates": detected_plates,
+                            "frame_count": frame_count,
+                            "progress": (frame_count / total_frames) * 100 if total_frames > 0 else 0
+                        })
+                
+                except Exception as e:
+                    print(f"Error processing frame {frame_count}: {str(e)}")
+                    continue
+            
+            frame_count += 1
+            
+        # Send completion message
+        await websocket.send_json({
+            "status": "completed",
+            "total_frames_processed": frame_count
+        })
+        
+    except WebSocketDisconnect:
+        print("WebSocket disconnected")
+    except Exception as e:
+        print(f"Error in video processing: {str(e)}")
+        try:
+            await websocket.send_json({"error": str(e)})
+        except:
+            pass
+    finally:
+        if cap and cap.isOpened():
+            cap.release()
+        if os.path.exists(temp_video):
+            try:
+                os.remove(temp_video)
+            except:
+                pass
+
 
 if __name__ == "__main__":
     import uvicorn
