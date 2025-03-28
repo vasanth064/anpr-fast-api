@@ -12,10 +12,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from typing import Tuple, List, Set
+from dotenv import load_dotenv 
+
+load_dotenv()
 
 # Set your OpenAI API key (or use an environment variable)
 openai.api_key = os.getenv(
-    "OPENAI_API_KEY",process.env.OPENAI_API_KEY)
+    "OPENAI_API_KEY",os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")

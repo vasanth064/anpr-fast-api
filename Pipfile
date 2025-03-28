@@ -11,6 +11,8 @@ fastanpr = "*"
 opencv-python = "*"
 jinja2 = "*"
 openai = "*"
+python-dotenv = "*"
+python-multipart = "*"
 
 [dev-packages]
 
